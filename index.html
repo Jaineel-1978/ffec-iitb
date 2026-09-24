@@ -6,11 +6,142 @@
 <title>IITB Freshers Free Fire • Leaderboard</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body><main>
-<header class="hero"><div><div class="eyebrow">IIT Bombay · Freshers tournament</div><h1>FREE FIRE<br>LEADERBOARD</h1><p>Live standings · best 4 of 5 matches count</p></div><button id="authToggle" class="quiet">Organizer sign in</button></header>
-<section id="login" class="card hidden"><h2>Organizer access</h2><p>Sign in with the organizer account to enter results.</p><form id="loginForm"><label>Email<input id="email" type="email" autocomplete="username" required></label><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button class="primary">Sign in</button></form><p id="loginMsg" class="message"></p></section>
-<nav class="tabs"><button class="tab active" data-group="A">Group A</button><button class="tab" data-group="B">Group B</button><span id="status" class="status">Connecting…</span></nav>
-<section class="card"><div class="toolbar"><div><h2 id="groupTitle">Group A standings</h2><span id="progress" class="muted">Loading match results…</span></div><span class="pill">Best 4 / 5</span></div><div class="tablewrap"><table><thead><tr><th>Rank</th><th>Team</th><th>Match 1</th><th>Match 2</th><th>Match 3</th><th>Match 4</th><th>Match 5</th><th>Total</th></tr></thead><tbody id="board"></tbody></table></div><p class="muted foot">Placement points: 1st and 2nd eliminated = 0; 3rd–11th = 1–9; Booyah = 12. Each kill = 1 point.</p></section>
-<section id="admin" class="card hidden"><div class="toolbar"><div><h2>Organizer controls</h2><p id="signedIn" class="muted"></p></div><button id="logout" class="quiet">Sign out</button></div><div class="editor"><label>Group<select id="editGroup"><option value="A">Group A</option><option value="B">Group B</option></select></label><label>Match<select id="editMatch"><option value="1">Match 1</option><option value="2">Match 2</option><option value="3">Match 3</option><option value="4">Match 4</option><option value="5">Match 5</option></select></label></div><p class="muted">For each team, set the order in which its last player was eliminated. Rank 12 is last standing (Booyah).</p><div id="entries"></div><button id="saveMatch" class="primary">Publish match results</button><span id="saveMsg" class="message"></span></section>
-<footer>Public view · Editing is restricted to the authenticated organizer account.</footer>
-</main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="app.js"></script></body></html>
+
+<body>
+<main>
+
+<header class="hero">
+  <div>
+    <div class="eyebrow">IIT Bombay · Freshers tournament</div>
+    <h1>FREE FIRE<br>LEADERBOARD</h1>
+    <p>Live standings · best 4 of 5 matches count</p>
+  </div>
+  <button id="authToggle" class="quiet">Organizer sign in</button>
+</header>
+
+<section id="login" class="card hidden">
+  <h2>Organizer access</h2>
+  <p>Sign in with the organizer account to enter results.</p>
+
+  <form id="loginForm">
+    <label>
+      Email
+      <input id="email" type="email" autocomplete="username" required>
+    </label>
+
+    <label>
+      Password
+      <input id="password" type="password" autocomplete="current-password" required>
+    </label>
+
+    <button class="primary">Sign in</button>
+  </form>
+
+  <p id="loginMsg" class="message"></p>
+</section>
+
+<nav class="tabs">
+  <button class="tab active" data-group="A">Group A</button>
+  <button class="tab" data-group="B">Group B</button>
+  <span id="status" class="status">Connecting…</span>
+</nav>
+
+<section class="card">
+  <div class="toolbar">
+    <div>
+      <h2 id="groupTitle">Group A standings</h2>
+      <span id="progress" class="muted">Loading match results…</span>
+    </div>
+
+    <span class="pill">Best 4 / 5</span>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Team</th>
+          <th>Match 1</th>
+          <th>Match 2</th>
+          <th>Match 3</th>
+          <th>Match 4</th>
+          <th>Match 5</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+
+      <tbody id="board"></tbody>
+    </table>
+  </div>
+
+  <p class="muted foot">
+    Placement points: 1st and 2nd eliminated = 0; 3rd–11th = 1–9; Booyah = 12. Each kill = 1 point.
+  </p>
+</section>
+
+<section id="admin" class="card hidden">
+
+  <div class="toolbar">
+    <div>
+      <h2>Organizer controls</h2>
+      <p id="signedIn" class="muted"></p>
+    </div>
+
+    <button id="logout" class="quiet">Sign out</button>
+  </div>
+
+  <div class="editor">
+    <label>
+      Group
+      <select id="editGroup">
+        <option value="A">Group A</option>
+        <option value="B">Group B</option>
+      </select>
+    </label>
+
+    <label>
+      Match
+      <select id="editMatch">
+        <option value="1">Match 1</option>
+        <option value="2">Match 2</option>
+        <option value="3">Match 3</option>
+        <option value="4">Match 4</option>
+        <option value="5">Match 5</option>
+      </select>
+    </label>
+  </div>
+
+  <p class="muted">
+    For each team, set the order in which its last player was eliminated.
+    Rank 12 is last standing (Booyah).
+  </p>
+
+  <div id="entries"></div>
+
+  <div class="editor-actions">
+    <button id="saveMatch" class="primary">
+      Publish match results
+    </button>
+
+    <button id="clearMatch" class="quiet" type="button">
+      Clear this match
+    </button>
+
+    <span id="saveMsg" class="message"></span>
+  </div>
+
+</section>
+
+<footer>
+  Public view · Editing is restricted to the authenticated organizer account.
+</footer>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
