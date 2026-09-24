@@ -1,11 +1,13 @@
 (() => {
   const cfg = window.FF_CONFIG || {};
+
   const configured =
     cfg.supabaseUrl?.startsWith('https://') &&
     cfg.supabaseAnonKey &&
     !cfg.supabaseAnonKey.includes('PASTE_');
 
   const $ = (q) => document.querySelector(q);
+
   const esc = (s) =>
     String(s).replace(/[&<>"']/g, c => ({
       '&':'&amp;',
@@ -18,11 +20,17 @@
   const points = (place) =>
     place === 12 ? 12 : place <= 2 ? 0 : place - 2;
 
-  let client,
-      isAdmin = false,
-      activeGroup = 'A',
-      teams = [],
-      results = [];
+  let client;
+  let isAdmin = false;
+  let activeGroup = 'A';
+  let teams = [];
+  let results = [];
+
+  // Keeps unsaved organizer entries safe while editing.
+  const editorDrafts = {};
+
+  const draftKey = (group, match, teamNumber) =>
+    `${group}-${match}-${teamNumber}`;
 
   const setStatus = (s) => {
     $('#status').textContent = s;
@@ -54,13 +62,19 @@
 
       client
         .from('match_results')
-        .select('group_code,match_number,team_number,placement,kills')
+        .select(
+          'group_code,match_number,team_number,placement,kills'
+        )
     ]);
 
     if (te || re) {
       setStatus('Could not load');
+
       $('#progress').textContent =
-        te?.message || re?.message || 'Database read failed';
+        te?.message ||
+        re?.message ||
+        'Database read failed';
+
       return;
     }
 
@@ -68,9 +82,17 @@
     results = resultData || [];
 
     setStatus('Live');
+
     render();
 
-    if (isAdmin) renderEditor();
+    /*
+     * IMPORTANT:
+     * Do not rebuild the organizer editor automatically while
+     * the organizer is typing. The editor has its own draft data.
+     */
+    if (isAdmin) {
+      renderEditor();
+    }
   }
 
   function render() {
@@ -135,6 +157,49 @@
       .join('');
   }
 
+  /*
+   * Save whatever is currently visible in the organizer form
+   * into the temporary draft before rebuilding it.
+   */
+  function captureEditorDraft() {
+    if (!isAdmin) return;
+
+    const group = $('#editGroup')?.value;
+    const match = Number($('#editMatch')?.value);
+
+    if (!group || !match) return;
+
+    document.querySelectorAll('[data-rank]').forEach(select => {
+      const teamNumber = Number(select.dataset.rank);
+
+      const killsInput =
+        document.querySelector(
+          `[data-kills="${teamNumber}"]`
+        );
+
+      editorDrafts[
+        draftKey(group, match, teamNumber)
+      ] = {
+        placement: select.value,
+        kills: killsInput?.value ?? '0'
+      };
+    });
+
+    document.querySelectorAll('.teamname').forEach(input => {
+      const teamNumber = Number(input.dataset.name);
+
+      const team = teams.find(
+        t =>
+          t.group_code === group &&
+          t.team_number === teamNumber
+      );
+
+      if (team) {
+        team.team_name = input.value;
+      }
+    });
+  }
+
   function renderEditor() {
     const group = $('#editGroup').value;
     const selectedMatch = Number($('#editMatch').value);
@@ -142,14 +207,27 @@
     $('#entries').innerHTML = teams
       .filter(t => t.group_code === group)
       .map(t => {
-        const r = results.find(
+        const databaseResult = results.find(
           x =>
             x.group_code === group &&
             x.match_number === selectedMatch &&
             x.team_number === t.team_number
         );
 
-        const rank = r?.placement || '';
+        const key =
+          draftKey(group, selectedMatch, t.team_number);
+
+        const draft = editorDrafts[key];
+
+        const rank =
+          draft !== undefined
+            ? draft.placement
+            : databaseResult?.placement || '';
+
+        const kills =
+          draft !== undefined
+            ? draft.kills
+            : databaseResult?.kills ?? 0;
 
         return `
           <div class="entry">
@@ -165,7 +243,9 @@
               data-rank="${t.team_number}"
               aria-label="${esc(t.team_name)} elimination order"
             >
-              <option value="">Choose elimination rank</option>
+              <option value="">
+                Choose elimination rank
+              </option>
 
               ${Array.from({ length: 12 }, (_, i) => {
                 const p = i + 1;
@@ -182,7 +262,7 @@
                 return `
                   <option
                     value="${p}"
-                    ${rank === p ? 'selected' : ''}
+                    ${String(rank) === String(p) ? 'selected' : ''}
                   >
                     ${label}
                   </option>
@@ -195,7 +275,7 @@
               type="number"
               min="0"
               max="99"
-              value="${r?.kills ?? 0}"
+              value="${esc(kills)}"
               aria-label="${esc(t.team_name)} kills"
             >
 
@@ -205,30 +285,24 @@
       .join('');
 
     /*
-     * IMPORTANT:
-     * Save team names immediately when the organiser finishes
-     * editing a name. This prevents renderEditor() from replacing
-     * unsaved names with the old database value.
+     * TEAM NAME
      */
     document.querySelectorAll('.teamname').forEach(input => {
       input.addEventListener('change', async () => {
         const teamNumber = Number(input.dataset.name);
-        const newName = input.value.trim();
+        const newName =
+          input.value.trim() ||
+          `Team ${String(teamNumber).padStart(2, '0')}`;
 
-        if (!newName) {
-          input.value = `Team ${String(teamNumber).padStart(2, '0')}`;
-          return;
-        }
-
-        input.disabled = true;
+        input.value = newName;
 
         const { error } = await client
           .from('teams')
-          .update({ team_name: newName })
+          .update({
+            team_name: newName
+          })
           .eq('group_code', group)
           .eq('team_number', teamNumber);
-
-        input.disabled = false;
 
         if (error) {
           $('#saveMsg').textContent =
@@ -236,7 +310,6 @@
           return;
         }
 
-        // Update local copy too.
         const team = teams.find(
           t =>
             t.group_code === group &&
@@ -248,7 +321,59 @@
         }
 
         render();
-        $('#saveMsg').textContent = 'Team name saved.';
+
+        $('#saveMsg').textContent =
+          'Team name saved.';
+      });
+    });
+
+    /*
+     * RANK
+     */
+    document.querySelectorAll('[data-rank]').forEach(select => {
+      select.addEventListener('change', () => {
+        const teamNumber =
+          Number(select.dataset.rank);
+
+        const killsInput =
+          document.querySelector(
+            `[data-kills="${teamNumber}"]`
+          );
+
+        editorDrafts[
+          draftKey(group, selectedMatch, teamNumber)
+        ] = {
+          placement: select.value,
+          kills: killsInput?.value ?? '0'
+        };
+
+        $('#saveMsg').textContent =
+          'Changes ready to publish.';
+      });
+    });
+
+    /*
+     * KILLS
+     */
+    document.querySelectorAll('[data-kills]').forEach(input => {
+      input.addEventListener('input', () => {
+        const teamNumber =
+          Number(input.dataset.kills);
+
+        const rankInput =
+          document.querySelector(
+            `[data-rank="${teamNumber}"]`
+          );
+
+        editorDrafts[
+          draftKey(group, selectedMatch, teamNumber)
+        ] = {
+          placement: rankInput?.value ?? '',
+          kills: input.value
+        };
+
+        $('#saveMsg').textContent =
+          'Changes ready to publish.';
       });
     });
   }
@@ -260,7 +385,11 @@
 
     isAdmin = !!session;
 
-    $('#admin').classList.toggle('hidden', !isAdmin);
+    $('#admin').classList.toggle(
+      'hidden',
+      !isAdmin
+    );
+
     $('#login').classList.add('hidden');
 
     $('#authToggle').textContent =
@@ -275,9 +404,14 @@
 
     render();
 
-    if (isAdmin) renderEditor();
+    if (isAdmin) {
+      renderEditor();
+    }
   }
 
+  /*
+   * PUBLIC GROUP TABS
+   */
   document.querySelectorAll('.tab').forEach(b => {
     b.onclick = () => {
       activeGroup = b.dataset.group;
@@ -285,7 +419,10 @@
       document
         .querySelectorAll('.tab')
         .forEach(x =>
-          x.classList.toggle('active', x === b)
+          x.classList.toggle(
+            'active',
+            x === b
+          )
         );
 
       render();
@@ -295,10 +432,14 @@
   $('#authToggle').onclick = () =>
     $('#login').classList.toggle('hidden');
 
+  /*
+   * LOGIN
+   */
   $('#loginForm').onsubmit = async e => {
     e.preventDefault();
 
-    $('#loginMsg').textContent = 'Signing in…';
+    $('#loginMsg').textContent =
+      'Signing in…';
 
     const { error } =
       await client.auth.signInWithPassword({
@@ -309,22 +450,45 @@
     $('#loginMsg').textContent =
       error ? error.message : '';
 
-    if (!error) await authState();
+    if (!error) {
+      await authState();
+    }
   };
 
+  /*
+   * LOGOUT
+   */
   $('#logout').onclick = async () => {
     await client.auth.signOut();
     await authState();
   };
 
-  $('#editGroup').onchange = renderEditor;
-  $('#editMatch').onchange = renderEditor;
+  /*
+   * GROUP / MATCH SELECTION
+   */
+  $('#editGroup').onchange = () => {
+    captureEditorDraft();
+    renderEditor();
+  };
 
+  $('#editMatch').onchange = () => {
+    captureEditorDraft();
+    renderEditor();
+  };
+
+  /*
+   * PUBLISH MATCH
+   */
   $('#saveMatch').onclick = async () => {
     if (!isAdmin) return;
 
-    const group = $('#editGroup').value;
-    const match = Number($('#editMatch').value);
+    captureEditorDraft();
+
+    const group =
+      $('#editGroup').value;
+
+    const match =
+      Number($('#editMatch').value);
 
     const ranks =
       [...document.querySelectorAll('[data-rank]')];
@@ -332,9 +496,14 @@
     const places =
       ranks.map(x => Number(x.value));
 
+    /*
+     * Require all 12 positions.
+     */
     if (
       places.length !== 12 ||
-      places.some(x => x < 1 || x > 12) ||
+      places.some(
+        x => x < 1 || x > 12
+      ) ||
       new Set(places).size !== 12
     ) {
       $('#saveMsg').textContent =
@@ -342,27 +511,29 @@
       return;
     }
 
-    const payload = ranks.map((el, i) => ({
-      group_code: group,
-      match_number: match,
-      team_number: Number(el.dataset.rank),
-      placement: places[i],
-      kills: Math.max(
-        0,
-        Number(
-          document.querySelector(
-            `[data-kills="${el.dataset.rank}"]`
-          ).value
-        ) || 0
-      )
-    }));
+    const payload = ranks.map(el => {
+      const teamNumber =
+        Number(el.dataset.rank);
 
-    $('#saveMsg').textContent = 'Publishing…';
+      const killsInput =
+        document.querySelector(
+          `[data-kills="${teamNumber}"]`
+        );
 
-    /*
-     * Team names are already saved individually.
-     * We therefore DON'T overwrite them here.
-     */
+      return {
+        group_code: group,
+        match_number: match,
+        team_number: teamNumber,
+        placement: Number(el.value),
+        kills: Math.max(
+          0,
+          Number(killsInput?.value) || 0
+        )
+      };
+    });
+
+    $('#saveMsg').textContent =
+      'Publishing…';
 
     const { error } =
       await client
@@ -372,14 +543,94 @@
             'group_code,match_number,team_number'
         });
 
-    $('#saveMsg').textContent =
-      error
-        ? `Could not publish: ${error.message}`
-        : 'Published.';
+    if (error) {
+      $('#saveMsg').textContent =
+        `Could not publish: ${error.message}`;
+      return;
+    }
 
-    if (!error) await load();
+    /*
+     * Remove drafts for this published match.
+     * The database is now the official version.
+     */
+    teams
+      .filter(t => t.group_code === group)
+      .forEach(t => {
+        delete editorDrafts[
+          draftKey(
+            group,
+            match,
+            t.team_number
+          )
+        ];
+      });
+
+    $('#saveMsg').textContent =
+      'Published.';
+
+    await load();
   };
 
+  /*
+   * CLEAR MATCH
+   */
+  $('#clearMatch').onclick = async () => {
+    if (!isAdmin) return;
+
+    const group =
+      $('#editGroup').value;
+
+    const match =
+      Number($('#editMatch').value);
+
+    const confirmed =
+      confirm(
+        `Clear all results for Group ${group}, Match ${match}?\n\n` +
+        `This will remove the placement and kill results for all 12 teams.`
+      );
+
+    if (!confirmed) return;
+
+    $('#saveMsg').textContent =
+      'Clearing match…';
+
+    const { error } =
+      await client
+        .from('match_results')
+        .delete()
+        .eq('group_code', group)
+        .eq('match_number', match);
+
+    if (error) {
+      $('#saveMsg').textContent =
+        `Could not clear match: ${error.message}`;
+      return;
+    }
+
+    /*
+     * Remove any unsaved drafts for this match too.
+     */
+    teams
+      .filter(t => t.group_code === group)
+      .forEach(t => {
+        delete editorDrafts[
+          draftKey(
+            group,
+            match,
+            t.team_number
+          )
+        ];
+      });
+
+    $('#saveMsg').textContent =
+      `Group ${group}, Match ${match} cleared.`;
+
+    await load();
+  };
+
+  /*
+   * Authentication changes.
+   */
   client.auth.onAuthStateChange(() =>
     setTimeout(authState, 0)
   );
@@ -387,6 +638,14 @@
   load();
   authState();
 
-  // Refresh public scores periodically.
-  setInterval(load, 30000);
+  /*
+   * Refresh the PUBLIC leaderboard periodically.
+   *
+   * Do NOT rebuild the organizer editor every 30 seconds.
+   * The organizer's unsaved form is protected by editorDrafts.
+   */
+  setInterval(async () => {
+    await load();
+  }, 30000);
+
 })();
